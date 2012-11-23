@@ -1,0 +1,238 @@
+/*
+ * Copyright 2011 Google Inc. All Rights Reserved.
+
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+var google = new OAuth2('google', {
+  client_id: '952993494713-h12m6utvq8g8d8et8n2i68plbrr6cr4d.apps.googleusercontent.com',
+  client_secret: 'IZ4hBSbosuhoWAX4lyAomm-R',
+  api_scope: 'https://www.googleapis.com/auth/tasks'
+});
+isArray = function(obj) { return obj.constructor == Array }
+isObject = function(obj) { return obj.constructor == Object }
+isNumber = function(obj) { return !isNaN(parseFloat(obj)) && isFinite(obj) }
+clone = function(obj) { return JSON.parse(JSON.stringify(obj)) }
+ArrayDiff = function(a,b) { return a.filter(function(i) {return !(b.indexOf(i) > -1)})}
+
+var utils = {
+  bit: function() {
+    return (Math.floor(Math.random() *36)).toString(36)
+  }
+
+  , part: function() {
+    return this.bit() + this.bit() + this.bit() + this.bit()
+  }
+
+  , getId: function(){
+    return this.part() + "-" + this.part() + "-" + this.part()
+  }
+
+  , decompress: function(){
+    return  {
+      a     : 'name'
+      , b   : 'tasks'
+      , c   : 'content'
+      , d   : 'priority'
+      , e   : 'date'
+      , f   : 'today'
+      , g   : 'showInToday'
+      , h   : 'list'
+      , i   : 'lists'
+      , j   : 'logged'
+      , k   : 'time'
+      , l   : 'sync'
+      , m   : 'synced'
+      , n   : 'order'
+      , o   : 'queue'
+      , p   : 'length'
+      , w   : 'scheduled'
+      , x   : 'version'
+      , y   : 'tags'
+    }
+  }
+
+  , compress: function(){
+    return {
+      name          : 'a'
+      , tasks       : 'b'
+      , content     : 'c'
+      , priority    : 'd'
+      , date        : 'e'
+      , today       : 'f'
+      , showInToday : 'g'
+      , list        : 'h'
+      , lists       : 'i'
+      , logged      : 'j'
+      , time        : 'k'
+      , sync        : 'l'
+      , synced      : 'm'
+      , order       : 'n'
+      , queue       : 'o'
+      , length      : 'p'
+      , notes       : 'q'
+      , items       : 'r'
+      , next        : 's'
+      , someday     : 't'
+      , deleted     : 'u'
+      , logbook     : 'v'
+      , scheduled   : 'w'
+      , version     : 'x'
+      , tags        : 'y'
+    }
+  }
+
+  , zip: function(obj, type){
+    var chart = {}
+      , out   = {};
+
+    if(type == 'compress'){
+      chart = this.compress();
+    } else {
+      chart = this.decompress();
+    }
+
+    for (var key in obj) {
+      if (chart.hasOwnProperty(key)) {
+        out[chart[key]] = obj[key];
+        if (typeof obj[key] === 'object' && isArray(obj[key]) == false) {
+          out[chart[key]] = utils.zip(out[chart[key]], type);
+        }
+      } else {
+        out[key] = obj[key];
+        if (typeof obj[key] === 'object' && isArray(obj[key]) == false) {
+          out[key] = utils.zip(out[key], type);
+        }
+      }
+    }
+    return out;
+  }
+
+
+}
+
+!function ($) {
+  $(function(){
+
+    
+    google.authorize(function() {
+  
+      token = google.getAccessToken()
+  //xhr.setRequestHeader('Authorization', 'OAuth ' + google.getAccessToken());
+      function setHeader(xhr) {
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      }
+
+      var importData = {
+        tasks: {}
+        , lists: {
+          order: []
+          , items: {}
+        }
+        , version: '1.4.7'
+      }
+      var tasks
+      var createLists = []
+      var createTasks = []
+      $.ajax({
+        //this is a 'cross-origin' domain
+        url : "https://www.googleapis.com/tasks/v1/users/@me/lists",
+        dataType : 'json',
+        beforeSend : setHeader,
+        success : function(data) {
+          for(var i =0; i < data.items.length; i++){
+            var list = data.items[i]
+              , listId = utils.getId()
+              , u = new Date(list.updated)
+
+              importData.lists.order.push(listId)  
+              createLists.push(
+                {
+                  id      : listId
+                  , name  : list.title
+                  , order : []
+                  , time  : {
+                    name  : Date.UTC(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(),  u.getUTCHours(), u.getUTCMinutes(), u.getUTCSeconds())
+                  }
+                }   
+              )
+              $.ajax({
+                url : "https://www.googleapis.com/tasks/v1/lists/"+list.id+"/tasks",
+                dataType : 'json',                
+                beforeSend : setHeader,
+                d: listId,
+                success: function(data, textStatus, jqXHR)
+                {
+                  if(data.items){
+                    
+                    for(var j =0; j < data.items.length; j++){
+                      var taskId = utils.getId()
+                        , task = data.items[j]
+                        , ul = new Date(task.updated)
+                        , getUTC = function(data){
+                          return Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate(),  data.getUTCHours(), data.getUTCMinutes(), data.getUTCSeconds())
+                        }
+                        , updated = getUTC(ul)
+                        , status = function(status){
+                          if(status == 'needsAction'){
+                            return false
+                          } else {
+                            var dateCompleted = new Date(task.completed) 
+                            return getUTC(dateCompleted)
+                          }
+                        }
+
+                      createList[this.d].order.push(taskId)  
+                      createTasks[taskId] = {
+                        'content'     : task.title
+                        , 'priority'  : 'none'
+                        , 'date'      : updated 
+                        , 'notes'     : task.notes
+                        , 'logged'    : status(task.status)       // false - date utc
+                        , 'list'      : this.d
+                        , 'time'      : 
+                          {
+                            'content'   : updated
+                            ,'priority' : updated
+                            ,'date'     : updated
+                            ,'notes'    : updated
+                            ,'list'     : updated
+                            ,'logged'   : updated
+                            ,'tags'     : updated
+                          }
+                      }  
+                      
+                    } 
+                    
+                  }  
+                }
+              }); 
+          }
+
+
+          
+        },
+        error : function(jqXHR, textStatus, errorThrown) {
+            alert("error");
+        }
+      });
+      
+      console.log(createLists)
+      
+
+    });
+
+  })      
+}(window.jQuery)
+
+
